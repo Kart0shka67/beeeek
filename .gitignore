@@ -1,0 +1,35 @@
+# Build
+target/
+*.jar
+*.war
+*.ear
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+
+# Maven wrapper
+.mvn/wrapper/maven-wrapper.jar
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database files (H2 was used earlier)
+data/
+*.db
+*.mv.db
+*.trace.db
+
+# Logs
+*.log
+
+# Temp
+*.tmp
+*.temp
