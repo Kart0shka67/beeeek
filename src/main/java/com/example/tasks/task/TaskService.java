@@ -94,11 +94,14 @@ public class TaskService {
         return tasks.save(task);
     }
 
-    // Regular user: ONLY tasks where they are owner (executor) + assigned to them, active only
+    // Regular user: tasks where they are owner OR assignee, active only
     public List<Task> findMyTasks() {
         User me = currentUser();
         if (me == null) return List.of();
-        return tasks.findActiveByOwnerId(me.getId());
+        List<Task> result = new ArrayList<>();
+        result.addAll(tasks.findActiveByOwnerId(me.getId()));
+        result.addAll(tasks.findActiveAssignedTo(me.getId()));
+        return result.stream().distinct().collect(Collectors.toList());
     }
 
     // Admin: all active
