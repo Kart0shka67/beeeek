@@ -1,10 +1,8 @@
 package com.example.tasks.task;
 
 import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -20,7 +18,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/tasks")
-@SecurityRequirement(name = "basic")
 public class TaskController {
 
     private TaskService service;
@@ -29,29 +26,26 @@ public class TaskController {
         this.service = service;
     }
 
-    // My tasks (own + assigned, active only)
+    // All active tasks (was /api/tasks, now shows all active tasks)
     @GetMapping
-    public List<Task> getMyTasks() {
-        return service.findMyTasks();
+    public List<Task> getAllTasks() {
+        return service.findAllActive();
     }
 
-    // All active tasks (admin only)
+    // All active tasks
     @GetMapping("/all")
-    @PreAuthorize("hasRole('ADMIN')")
     public List<Task> getAllActive() {
         return service.findAllActive();
     }
 
-    // All deleted tasks (admin only)
+    // All deleted tasks
     @GetMapping("/deleted")
-    @PreAuthorize("hasRole('ADMIN')")
     public List<Task> getAllDeleted() {
         return service.findAllDeleted();
     }
 
-    // All tasks of a specific user (admin only)
+    // All tasks of a specific user
     @GetMapping("/user/{userId}")
-    @PreAuthorize("hasRole('ADMIN')")
     public List<Task> getUserTasks(@PathVariable long userId) {
         return service.findAllByUser(userId);
     }
@@ -95,7 +89,6 @@ public class TaskController {
 
     // Admin: restore soft-deleted task
     @PatchMapping("/{id}/restore")
-    @PreAuthorize("hasRole('ADMIN')")
     public Task restore(@PathVariable long id) {
         return service.restore(id);
     }

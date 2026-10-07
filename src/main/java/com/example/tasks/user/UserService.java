@@ -1,23 +1,18 @@
 package com.example.tasks.user;
 
-import org.springframework.security.authentication.BadCredentialsException;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.mindrot.jbcrypt.BCrypt;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 
 @Service
-public class UserService implements UserDetailsService {
+public class UserService {
 
     private UserRepository users;
-    private PasswordEncoder encoder;
 
-    public UserService(UserRepository users, PasswordEncoder encoder) {
+    public UserService(UserRepository users) {
         this.users = users;
-        this.encoder = encoder;
     }
 
     public User register(String username, String password) {
@@ -32,7 +27,8 @@ public class UserService implements UserDetailsService {
         }
         User user = new User();
         user.setUsername(username.trim());
-        user.setPassword(encoder.encode(password));
+        user.setPassword(BCrypt.hashpw(password, BCrypt.gensalt()));
+        user.setRole(User.Role.USER);
         return users.save(user);
     }
 
@@ -41,23 +37,10 @@ public class UserService implements UserDetailsService {
         if (username != null) {
             user = users.findByUsername(username.trim());
         }
-        if (user == null || password == null || !encoder.matches(password, user.getPassword())) {
-            throw new BadCredentialsException("Invalid username or password");
+        if (user == null || !BCrypt.checkpw(password, user.getPassword())) {
+            throw new NoSuchElementException("Invalid username or password");
         }
         return user;
-    }
-
-    @Override
-    public UserDetails loadUserByUsername(String username) {
-        User user = users.findByUsername(username);
-        if (user == null) {
-            throw new UsernameNotFoundException(username);
-        }
-        return org.springframework.security.core.userdetails.User
-                .withUsername(user.getUsername())
-                .password(user.getPassword())
-                .roles(user.getRole().name())
-                .build();
     }
 
     public List<User> findAll() {

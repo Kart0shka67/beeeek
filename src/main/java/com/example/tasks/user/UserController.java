@@ -24,14 +24,14 @@ public class UserController {
 
     @PostMapping("/register")
     public ResponseEntity<Map<String, Object>> register(@RequestBody RegisterRequest body) {
-        User user = service.register(body.username(), body.password());
+        User user = service.register(body.getUsername(), body.getPassword());
         Map<String, Object> answer = Map.of("id", user.getId(), "username", user.getUsername());
         return ResponseEntity.status(HttpStatus.CREATED).body(answer);
     }
 
     @PostMapping("/login")
     public Map<String, Object> login(@RequestBody RegisterRequest body) {
-        User user = service.login(body.username(), body.password());
+        User user = service.login(body.getUsername(), body.getPassword());
         return Map.of("id", user.getId(), "username", user.getUsername());
     }
 
