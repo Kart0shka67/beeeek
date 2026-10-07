@@ -47,6 +47,7 @@ public class TaskService {
         return u != null && u.getRole() == User.Role.ADMIN;
     }
 
+    // Create task for yourself (owner = you)
     public Task create(String title, String text) {
         if (title == null || title.trim().isEmpty()) {
             throw new IllegalArgumentException("Title must not be blank");
@@ -61,17 +62,29 @@ public class TaskService {
         return tasks.save(task);
     }
 
+    // Create task FOR assignee(s) - owner = assignee, creator is NOT owner
     public Task createAndAssign(String title, String text, List<Long> assigneeIds) {
         if (title == null || title.trim().isEmpty()) {
             throw new IllegalArgumentException("Title must not be blank");
         }
+        if (assigneeIds == null || assigneeIds.isEmpty()) {
+            throw new IllegalArgumentException("At least one assignee required");
+        }
+
         Task task = new Task();
         task.setTitle(title.trim());
         task.setText(text);
         task.setCompleted(false);
         task.setDeleted(false);
-        User owner = currentUser();
-        if (owner != null) task.setOwner(owner);
+
+        // First assignee becomes owner (executor)
+        Long firstAssigneeId = assigneeIds.get(0);
+        User firstAssignee = users.findById(firstAssigneeId).orElseThrow(
+            () -> new IllegalArgumentException("Assignee not found: " + firstAssigneeId)
+        );
+        task.setOwner(firstAssignee);
+
+        // Add all assignees as collaborators
         if (assigneeIds != null) {
             for (Long id : assigneeIds) {
                 User u = users.findById(id).orElse(null);
@@ -81,14 +94,11 @@ public class TaskService {
         return tasks.save(task);
     }
 
-    // Regular user: own + assigned, active only
+    // Regular user: ONLY tasks where they are owner (executor) + assigned to them, active only
     public List<Task> findMyTasks() {
         User me = currentUser();
         if (me == null) return List.of();
-        List<Task> result = new ArrayList<>();
-        result.addAll(tasks.findActiveByOwnerId(me.getId()));
-        result.addAll(tasks.findActiveAssignedTo(me.getId()));
-        return result.stream().distinct().collect(Collectors.toList());
+        return tasks.findActiveByOwnerId(me.getId());
     }
 
     // Admin: all active
@@ -116,7 +126,7 @@ public class TaskService {
         // Admin sees everything
         if (isAdmin()) return task;
 
-        // Regular user: only own/assigned, and not deleted
+        // Regular user: only if they are owner (executor) OR assignee, and not deleted
         User me = currentUser();
         if (me == null) throw new NoSuchElementException("Task not found");
 
