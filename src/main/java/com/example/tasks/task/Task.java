@@ -6,8 +6,13 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "tasks")
@@ -23,10 +28,20 @@ public class Task {
 
     private boolean completed;
 
+    private boolean deleted = false;
+
     @JsonIgnore
     @ManyToOne
-    @JoinColumn(name = "user_id")
-    private User user;
+    @JoinColumn(name = "owner_id")
+    private User owner;
+
+    @ManyToMany
+    @JoinTable(
+        name = "task_assignees",
+        joinColumns = @JoinColumn(name = "task_id"),
+        inverseJoinColumns = @JoinColumn(name = "user_id")
+    )
+    private List<User> assignees = new ArrayList<>();
 
     public long getId() {
         return id;
@@ -56,15 +71,41 @@ public class Task {
         this.completed = completed;
     }
 
-    public User getUser() {
-        return user;
+    public boolean isDeleted() {
+        return deleted;
     }
 
-    public void setUser(User user) {
-        this.user = user;
+    public void setDeleted(boolean deleted) {
+        this.deleted = deleted;
     }
 
-    public long getUserId() {
-        return user.getId();
+    public User getOwner() {
+        return owner;
+    }
+
+    public void setOwner(User owner) {
+        this.owner = owner;
+    }
+
+    public long getOwnerId() {
+        return owner != null ? owner.getId() : 0;
+    }
+
+    public List<User> getAssignees() {
+        return assignees;
+    }
+
+    public void setAssignees(List<User> assignees) {
+        this.assignees = assignees;
+    }
+
+    public void addAssignee(User user) {
+        if (!assignees.contains(user)) {
+            assignees.add(user);
+        }
+    }
+
+    public void removeAssignee(User user) {
+        assignees.remove(user);
     }
 }

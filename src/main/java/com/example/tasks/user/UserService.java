@@ -7,6 +7,8 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 public class UserService implements UserDetailsService {
 
@@ -51,11 +53,14 @@ public class UserService implements UserDetailsService {
         if (user == null) {
             throw new UsernameNotFoundException(username);
         }
-        // Full name below is Spring Security's own User, not our entity.
         return org.springframework.security.core.userdetails.User
                 .withUsername(user.getUsername())
                 .password(user.getPassword())
-                .roles("USER")
+                .roles(user.getRole().name())
                 .build();
+    }
+
+    public List<User> findAll() {
+        return users.findAll();
     }
 }

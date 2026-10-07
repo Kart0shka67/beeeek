@@ -1,11 +1,29 @@
 # API «Мои задачи» — полная спецификация для фронтенда
 
-**База**: PostgreSQL (`tasksdb`), таблицы `users` и `tasks` создаются автоматически.  
+**База**: PostgreSQL (`tasksdb`), таблицы `users`, `tasks`, `task_assignees` создаются автоматически.  
 **Порт**: 8081 (в `application.properties`).  
-**Авторизация**: Basic Auth во всех `/api/tasks/*` (кроме `/api/users/register` и `/api/users/login`).  
+**Авторизация**: Basic Auth во всех `/api/tasks/*` и `/api/users` (кроме `/api/users/register` и `/api/users/login`).  
+**Роли**: `USER` (обычный), `ADMIN` (видит всё, включая удалённые).  
 **CORS**: разрешён `*`, методы `GET,POST,PATCH,DELETE,OPTIONS`, заголовки `Content-Type, Authorization`.  
 **Swagger UI**: `http://localhost:8081/swagger-ui/index.html` (кнопка Authorize → Basic Auth).  
 **JSON-схема**: `http://localhost:8081/v3/api-docs`.
+
+---
+
+## 1. Пользователи
+
+### 1.3 Список всех пользователей
+**GET** `/api/users`  
+Требует Basic Auth. Возвращает массив `{id, username}` для выбора получателей задачи.
+
+**Headers**  
+`Authorization: Basic base64(username:password)`
+
+**Responses**
+| Код | Тело |
+|-----|------|
+| `200 OK` | `[{"id":1,"username":"alice"},{"id":2,"username":"bob"}]` |
+| `401 Unauthorized` | — |
 
 ---
 
@@ -59,6 +77,16 @@
 
 ---
 
+### Новые возможности
+- **Назначение задачи нескольким пользователям**: `POST /api/tasks/assign`
+- **Раскомплит (вернуть в активные)**: `PATCH /api/tasks/{id}/uncomplete`
+- **Soft delete**: `DELETE` помечает `deleted=true`, задача остаётся в БД
+- **Восстановление удалённой задачи** (админ): `PATCH /api/tasks/{id}/restore`
+- **Админ-панель**: просмотр всех задач, удалённых задач, задач конкретного пользователя
+- **Роли**: `USER` / `ADMIN` (админ видит всё, включая удалённые)
+
+---
+
 ## 2. Задачи
 
 ### Объект задачи (Task)
@@ -68,16 +96,20 @@
   "title": "Подготовить отчёт",
   "text": "К пятнице сдать",
   "completed": false,
-  "userId": 1
+  "deleted": false,
+  "ownerId": 1,
+  "assignees": [{"id":2,"username":"bob"}]
 }
 ```
 | Поле | Тип | Описание |
 |------|-----|----------|
 | `id` | long | Уникальный идентификатор (назначает сервер) |
 | `title` | string | Название, обязательное, обрезается по краям |
-| `text` | string / null | Описание, **необязательное** (может быть null или отсутствовать) |
+| `text` | string / null | Описание, **необязательное** |
 | `completed` | boolean | Статус выполнения (при создании всегда `false`) |
-| `userId` | long | ID владельца (проставляется сервером по авторизованному пользователю) |
+| `deleted` | boolean | Soft delete флаг (админ видит, пользователь — нет) |
+| `ownerId` | long | ID владельца (кто создал) |
+| `assignees` | array | Массив пользователей, которым назначена задача |
 
 ---
 
@@ -218,6 +250,117 @@ GET /api/tasks?userId=999         → [] (пользователя нет, но 
 
 ---
 
+### 2.6 Создать задачу и назначить нескольким пользователям
+**POST** `/api/tasks/assign`  
+Требует Basic Auth. Владелец = авторизованный пользователь, получатели — по `assigneeIds`.
+
+**Headers**  
+`Content-Type: application/json`  
+`Authorization: Basic base64(username:password)`
+
+**Request body**
+```json
+{
+  "title": "Задача для команды",
+  "text": "Сделать к пятнице",
+  "assigneeIds": [2, 3]
+}
+```
+- `title` (string, **required**) — не пустой после `trim()`
+- `text` (string, **optional**)
+- `assigneeIds` (array of long, **optional**) — ID пользователей, которым назначается задача
+
+**Responses**
+
+| Код | Тело / Заголовки | Когда |
+|-----|------------------|-------|
+| `201 Created` | `Location: /api/tasks/{id}` + тело задачи с `assignees` | Успех |
+| `400 Bad Request` | `{"error":"Title must not be blank"}` | title пустой |
+| `401 Unauthorized` | — | Нет/неверный Basic Auth |
+
+---
+
+### 2.7 Раскомплит (вернуть в активные)
+**PATCH** `/api/tasks/{id}/uncomplete`  
+Требует Basic Auth. **Только владелец**.
+
+**Path variables**  
+`id` — ID задачи.
+
+**Headers**  
+`Authorization: Basic base64(username:password)`
+
+**Responses**
+
+| Код | Тело | Когда |
+|-----|------|-------|
+| `200 OK` | `{...}` с `"completed":false` | Успех |
+| `404 Not Found` | `{"error":"Task not found"}` | Задачи нет или не твоя |
+| `401 Unauthorized` | — | Нет/неверный Basic Auth |
+
+---
+
+### 2.8 Soft delete (мягкое удаление)
+**DELETE** `/api/tasks/{id}`  
+Требует Basic Auth. **Только владелец**. Задача не удаляется из БД, а помечается `deleted=true`.
+
+**Path variables**  
+`id` — ID задачи.
+
+**Headers**  
+`Authorization: Basic base64(username:password)`
+
+**Responses**
+
+| Код | Тело | Когда |
+|-----|------|-------|
+| `204 No Content` | *(пусто)* | Успешное мягкое удаление |
+| `404 Not Found` | `{"error":"Task not found"}` | Задачи нет или не твоя |
+| `401 Unauthorized` | — | Нет/неверный Basic Auth |
+
+> После мягкого удаления задача исчезает из списков пользователя (`GET /api/tasks`), но админ видит её в `GET /api/tasks/deleted`.
+
+---
+
+### 2.9 Восстановление удалённой задачи (админ)
+**PATCH** `/api/tasks/{id}/restore`  
+Требует Basic Auth. **Только админ**.
+
+**Path variables**  
+`id` — ID задачи.
+
+**Headers**  
+`Authorization: Basic base64(username:password)`
+
+**Responses**
+
+| Код | Тело | Когда |
+|-----|------|-------|
+| `200 OK` | `{...}` с `"deleted":false` | Успех |
+| `403 Forbidden` | — | Не админ |
+| `404 Not Found` | `{"error":"Task not found"}` | Задачи нет |
+| `401 Unauthorized` | — | Нет/неверный Basic Auth |
+
+---
+
+### 2.10 Админ: все активные задачи
+**GET** `/api/tasks/all`  
+Требует Basic Auth. **Только админ**. Возвращает все задачи со `deleted=false`.
+
+---
+
+### 2.11 Админ: все удалённые задачи
+**GET** `/api/tasks/deleted`  
+Требует Basic Auth. **Только админ**. Возвращает задачи со `deleted=true`.
+
+---
+
+### 2.12 Админ: задачи конкретного пользователя
+**GET** `/api/tasks/user/{userId}`  
+Требует Basic Auth. **Только админ**. Возвращает все задачи пользователя (включая удалённые).
+
+---
+
 ## 3. Формат ошибок
 Все ошибки возвращают единый JSON:
 ```json
@@ -230,6 +373,7 @@ GET /api/tasks?userId=999         → [] (пользователя нет, но 
 | Задача не найдена / не твоя | 404 | `Task not found` |
 | Username занят | 400 | `Username is taken` |
 | Пустой username/password при регистрации | 400 | `Username must not be blank` / `Password must not be blank` |
+| Нет прав админа | 403 | `Access denied` |
 
 ---
 
@@ -281,10 +425,35 @@ await fetch(`${BASE}/api/tasks/${task.id}/complete`, {
   method: 'PATCH', headers
 });
 
-// 8. Удалить
+// 8. Удалить (soft delete)
 await fetch(`${BASE}/api/tasks/${task.id}`, {
   method: 'DELETE', headers
 });
+
+// 9. Раскомплит
+await fetch(`${BASE}/api/tasks/${task.id}/uncomplete`, {
+  method: 'PATCH', headers
+});
+
+// 10. Назначить задачу нескольким пользователям
+await fetch(`${BASE}/api/tasks/assign`, {
+  method: 'POST',
+  headers,
+  body: JSON.stringify({ title: 'Командная задача', text: 'Сделать вместе', assigneeIds: [2, 3] })
+});
+
+// 11. Админ: восстановить удалённую задачу
+await fetch(`${BASE}/api/tasks/${task.id}/restore`, {
+  method: 'PATCH', headers
+});
+
+// 12. Админ: посмотреть все задачи
+const allTasks = await fetch(`${BASE}/api/tasks/all`, { headers });
+const allTasksData = await allTasks.json();
+
+// 13. Админ: посмотреть удалённые задачи
+const deletedTasks = await fetch(`${BASE}/api/tasks/deleted`, { headers });
+const deletedTasksData = await deletedTasks.json();
 ```
 
 ---
@@ -297,9 +466,14 @@ await fetch(`${BASE}/api/tasks/${task.id}`, {
 | Пользователь возвращается | Взять сохранённые креды → `GET /api/tasks` |
 | Создать задачу | `POST /api/tasks` → показать в списке (обновить `GET`) |
 | Отметить выполненной | `PATCH /api/tasks/{id}/complete` → обновить UI |
-| Удалить | `DELETE /api/tasks/{id}` → убрать из списка |
-| Посмотреть чужие задачи | `GET /api/tasks` (видно всё) или `GET /api/tasks?userId=X` |
+| Раскомплит | `PATCH /api/tasks/{id}/uncomplete` → обновить UI |
+| Удалить (soft delete) | `DELETE /api/tasks/{id}` → убрать из списка |
+| Назначить задачу команде | `POST /api/tasks/assign` с `assigneeIds` → получатели видят в `GET /api/tasks` |
 | Попытаться удалить чужую | `DELETE` → `404` → показать «задача не найдена» |
+| Админ: посмотреть все задачи | `GET /api/tasks/all` |
+| Админ: посмотреть удалённые | `GET /api/tasks/deleted` |
+| Админ: восстановить задачу | `PATCH /api/tasks/{id}/restore` |
+| Админ: задачи пользователя | `GET /api/tasks/user/{userId}` |
 
 ---
 
@@ -315,4 +489,4 @@ mvnw.cmd spring-boot:run
 ## 7. Полезные ссылки
 - Swagger UI: `http://localhost:8081/swagger-ui/index.html` (кнопка **Authorize** → Basic Auth)
 - OpenAPI JSON: `http://localhost:8081/v3/api-docs`
-- pgAdmin 4: подключись к `localhost:5432`, база `tasksdb`, таблицы `users` и `tasks`
+- pgAdmin 4: подключись к `localhost:5432`, база `tasksdb`, таблицы `users`, `tasks`, `task_assignees`
