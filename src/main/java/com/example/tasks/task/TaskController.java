@@ -26,13 +26,13 @@ public class TaskController {
         this.service = service;
     }
 
-    // All active tasks (was /api/tasks, now shows all active tasks)
+    // My tasks (own + assigned, active only) - regular user
     @GetMapping
-    public List<Task> getAllTasks() {
-        return service.findAllActive();
+    public List<Task> getMyTasks() {
+        return service.findMyTasks();
     }
 
-    // All active tasks
+    // All active tasks (admin)
     @GetMapping("/all")
     public List<Task> getAllActive() {
         return service.findAllActive();
