@@ -10,6 +10,38 @@
 
 ---
 
+## ВАЖНО: Как работает изоляция пользователей
+
+После логина фронт получает `id` пользователя и **обязан** добавлять заголовок `X-User-Id` во ВСЕ запросы к `/api/tasks/*`:
+
+| Заголовок | Значение | Зачем |
+|-----------|----------|-------|
+| `X-User-Id` | id пользователя после логина | Сервер понимает, КТО ты, и отдаёт только твои задачи |
+
+**Без этого заголовка сервер не знает, кто ты, и вернёт пустой список.**
+
+### Правила видимости:
+
+| Роль | Что видит в `GET /api/tasks` | Может ли видеть удалённые | Админ-эндпоинты (`/all`, `/deleted`, `/user/{id}`, `/restore`) |
+|------|------------------------------|---------------------------|-------------------------------------------------------------|
+| `USER` (обычный) | Только свои: где он `owner` ИЛИ `assignee` | Нет (404) | Нет (404) |
+| `ADMIN` | Все задачи через `/all`, `/deleted`, `/user/{id}` | Да | Да |
+
+### Правила назначения задачи:
+
+| Сценарий | Кто видит задачу |
+|----------|-------------------|
+| Я создал задачу для себя (`POST /api/tasks`) | Я (я owner) |
+| Я назначил задачу другому (`POST /api/tasks/assign`) | Только исполнитель(и) — **я НЕ вижу** |
+| Мне назначили задачу | Я (я assignee) |
+
+### Как сделать админа:
+```sql
+UPDATE users SET role='ADMIN' WHERE username='имя_пользователя';
+```
+
+---
+
 ## 1. Пользователи
 
 ### 1.1 Регистрация
@@ -97,25 +129,16 @@
 
 ### 2.1 Получить список задач
 **GET** `/api/tasks`  
-Публичный, без авторизации. Возвращает все активные задачи.
+Возвращает задачи текущего пользователя (по заголовку `X-User-Id`): где он `owner` ИЛИ `assignee`. Удалённые не видны.
 
-**Query parameters** (опционально)
-| Параметр | Тип | Описание |
-|----------|-----|----------|
-| `userId` | long | Если задан — вернуть только задачи этого пользователя. Если нет — вернуть **все** задачи. |
+**Headers**  
+`X-User-Id: <id>`
 
 **Responses**
 
 | Код | Тело | Когда |
 |-----|------|-------|
 | `200 OK` | `[{...}, {...}]` | Массив задач (может быть пустым `[]`) |
-
-**Примеры**
-```
-GET /api/tasks                    → все задачи
-GET /api/tasks?userId=1           → только задачи userId=1
-GET /api/tasks?userId=999         → [] (пользователя нет, но ошибки нет)
-```
 
 ---
 
@@ -322,55 +345,55 @@ await fetch(`${BASE}/api/users/register`, {
   body: JSON.stringify({ username: 'alice', password: 'alice123' })
 });
 
-// 2. Логин (проверка)
+// 2. Логин — получаем id пользователя
 const login = await fetch(`${BASE}/api/users/login`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ username: 'alice', password: 'alice123' })
 });
-const { id, username } = await login.json();
+const { id: myId } = await login.json();
 
-// 3. Создать задачу
+// Заголовок для всех запросов к задачам
+const authHeaders = {
+  'Content-Type': 'application/json',
+  'X-User-Id': String(myId)
+};
+
+// 3. Создать задачу для себя
 const created = await fetch(`${BASE}/api/tasks`, {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: authHeaders,
   body: JSON.stringify({ title: 'Отчёт', text: 'Срочно' })
 });
-const task = await created.json(); // { id, title, text, completed: false, deleted: false, ownerId: 0 }
+const task = await created.json();
 
-// 4. Список всех
-const all = await fetch(`${BASE}/api/tasks`);
-const tasks = await all.json();
+// 4. Мои задачи (только мои: owner или assignee)
+const myTasks = await fetch(`${BASE}/api/tasks`, { headers: authHeaders });
 
-// 5. Список только alice (userId=1)
-const mine = await fetch(`${BASE}/api/tasks?userId=${task.ownerId}`);
+// 5. Завершить
+await fetch(`${BASE}/api/tasks/${task.id}/complete`, { headers: authHeaders, method: 'PATCH' });
 
-// 6. Завершить
-await fetch(`${BASE}/api/tasks/${task.id}/complete`, { method: 'PATCH' });
+// 6. Раскомплит
+await fetch(`${BASE}/api/tasks/${task.id}/uncomplete`, { headers: authHeaders, method: 'PATCH' });
 
-// 7. Раскомплит
-await fetch(`${BASE}/api/tasks/${task.id}/uncomplete`, { method: 'PATCH' });
+// 7. Удалить (soft delete)
+await fetch(`${BASE}/api/tasks/${task.id}`, { headers: authHeaders, method: 'DELETE' });
 
-// 8. Удалить (soft delete)
-await fetch(`${BASE}/api/tasks/${task.id}`, { method: 'DELETE' });
-
-// 9. Назначить задачу нескольким пользователям
+// 8. Назначить задачу нескольким исполнителям (я НЕ увижу эту задачу)
 await fetch(`${BASE}/api/tasks/assign`, {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: authHeaders,
   body: JSON.stringify({ title: 'Командная задача', text: 'Сделать вместе', assigneeIds: [2, 3] })
 });
 
-// 10. Админ: восстановить удалённую задачу
-await fetch(`${BASE}/api/tasks/${task.id}/restore`, { method: 'PATCH' });
+// 9. Админ: восстановить удалённую задачу
+await fetch(`${BASE}/api/tasks/${task.id}/restore`, { headers: authHeaders, method: 'PATCH' });
 
-// 11. Админ: посмотреть все задачи
-const allTasks = await fetch(`${BASE}/api/tasks/all`);
-const allTasksData = await allTasks.json();
+// 10. Админ: посмотреть все задачи
+const allTasks = await fetch(`${BASE}/api/tasks/all`, { headers: authHeaders });
 
-// 13. Админ: посмотреть удалённые задачи
-const deletedTasks = await fetch(`${BASE}/api/tasks/deleted`);
-const deletedTasksData = await deletedTasks.json();
+// 11. Админ: посмотреть удалённые задачи
+const deletedTasks = await fetch(`${BASE}/api/tasks/deleted`, { headers: authHeaders });
 ```
 
 ---
